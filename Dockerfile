@@ -89,14 +89,14 @@ COPY --from=builder /src/packages/web/server /usr/local/lib/openchamber/packages
 COPY --from=builder /src/packages/web/dist /usr/local/lib/openchamber/packages/web/dist
 
 # Create runtime user and directories.
-RUN groupadd -g 1000 openchamber \
+RUN chmod +x /usr/local/bin/openchamber-* \
+    && groupadd -g 1000 openchamber \
     && useradd -u 1000 -g openchamber -d /config -s /usr/local/bin/openchamber-shell -M openchamber \
     && install -d -o openchamber -g openchamber -m 755 /config /workspace \
     && mkdir -p /ssh \
     && chmod +x \
         /etc/cont-init.d/* \
-        /etc/s6-overlay/s6-rc.d/*/run \
-        /usr/local/bin/openchamber-*
+        /etc/s6-overlay/s6-rc.d/*/run
 
 # OCI labels
 LABEL org.opencontainers.image.title="docker-openchamber" \
