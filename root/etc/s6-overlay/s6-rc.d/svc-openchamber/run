@@ -28,4 +28,4 @@ fi
 
 echo "[svc-openchamber] Exec: ${cmd[*]}"
 
-exec s6-setuidgid "${PUID}:${PGID}" "${cmd[@]}"
+exec /command/s6-setuidgid "${PUID}:${PGID}" "${cmd[@]}"
