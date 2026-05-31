@@ -72,8 +72,18 @@ docker compose up -d
 | Tag | Description |
 |-----|-------------|
 | `latest` | Latest stable release |
-| `1.11` | Latest patch release in the 1.11.x series |
-| `1.11.7` | Specific release version |
+| `1.11.7-1.15.13` | Specific OpenChamber + OpenCode version pair |
+| `1.11.7-1.15` | OC patch + opencode minor |
+| `1.11.7-1` | OC patch + opencode major |
+| `1.11-1.15.13` | OC minor + opencode patch |
+| `1.11-1.15` | OC minor + opencode minor |
+| `1.11-1` | OC minor + opencode major |
+| `1-1.15.13` | OC major + opencode patch |
+| `1-1.15` | OC major + opencode minor |
+| `1-1` | OC major + opencode major |
+| `1.11.7` | Specific OpenChamber version |
+| `1.11` | Latest patch in the 1.11.x series |
+| `1` | Latest minor in the 1.x series |
 | `sha-xxx` | Specific commit build |
 
 ## Building Locally

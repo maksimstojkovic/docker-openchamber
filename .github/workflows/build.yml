@@ -80,19 +80,43 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          v="${{ steps.version.outputs.openchamber_version }}"
+          oc="${{ steps.version.outputs.openchamber_version }}"
+          op="${{ steps.version.outputs.opencode_version }}"
           repo="${REGISTRY}/${IMAGE_NAME}"
           repo_lc="$(echo "${repo}" | tr '[:upper:]' '[:lower:]')"
           short_sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
 
-          tags=()
-          tags+=("${repo_lc}:${v}")
-          if printf '%s' "${v}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
-            minor="${v%.*}"
-            tags+=("${repo_lc}:${minor}")
+          oc_levels=("${oc}")
+          if [[ "${oc}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            oc_levels+=("${oc%.*}" "${oc%%.*}")
+          elif [[ "${oc}" =~ ^[0-9]+\.[0-9]+ ]]; then
+            oc_levels+=("${oc%%.*}")
           fi
-          tags+=("${repo_lc}:latest")
-          tags+=("${repo_lc}:sha-${short_sha}")
+
+          op_levels=("${op}")
+          if [[ "${op}" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            op_levels+=("${op%.*}" "${op%%.*}")
+          elif [[ "${op}" =~ ^[0-9]+\.[0-9]+ ]]; then
+            op_levels+=("${op%%.*}")
+          fi
+
+          declare -A seen=()
+          tags=()
+          add_tag() {
+            if [[ -z "${seen[$1]+x}" ]]; then
+              seen[$1]=1
+              tags+=("$1")
+            fi
+          }
+
+          for ol in "${oc_levels[@]}"; do
+            for pl in "${op_levels[@]}"; do
+              add_tag "${repo_lc}:${ol}-${pl}"
+            done
+            add_tag "${repo_lc}:${ol}"
+          done
+          add_tag "${repo_lc}:latest"
+          add_tag "${repo_lc}:sha-${short_sha}"
 
           {
             echo "tags<<EOF"
