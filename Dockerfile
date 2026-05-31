@@ -89,13 +89,8 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     npm install -g "opencode-ai@${OPENCODE_VERSION}"; \
     opencode --version
 
-# Copy built OpenChamber artifacts from builder.
-COPY --from=builder /src/node_modules /usr/local/lib/openchamber/node_modules
-COPY --from=builder /src/package.json /usr/local/lib/openchamber/package.json
-COPY --from=builder /src/packages/web/package.json /usr/local/lib/openchamber/packages/web/package.json
-COPY --from=builder /src/packages/web/bin /usr/local/lib/openchamber/packages/web/bin
-COPY --from=builder /src/packages/web/server /usr/local/lib/openchamber/packages/web/server
-COPY --from=builder /src/packages/web/dist /usr/local/lib/openchamber/packages/web/dist
+# Copy the entire built source tree so Bun's symlink structure stays intact.
+COPY --from=builder /src /usr/local/lib/openchamber
 
 # Scripts/config that change most often; keep after heavy layers.
 COPY root/ /
