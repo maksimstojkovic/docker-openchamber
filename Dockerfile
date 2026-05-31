@@ -101,6 +101,7 @@ RUN chmod +x /usr/local/bin/openchamber-* \
     && useradd -u 1000 -g openchamber -d /config -s /usr/local/bin/openchamber-shell -M openchamber \
     && install -d -o openchamber -g openchamber -m 755 /config /workspace \
     && mkdir -p /ssh \
+    && ln -s /usr/local/lib/openchamber /src \
     && chmod +x \
         /etc/cont-init.d/* \
         /etc/s6-overlay/s6-rc.d/*/run
