@@ -8,16 +8,22 @@ ARG TARGETARCH
 
 WORKDIR /src
 
+# Install build-time deps with explicit cleanup for minimal layer size.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git \
         make g++ python3 \
     && rm -rf /var/lib/apt/lists/*
 
+# Download pinned upstream source.
 RUN set -eux; \
     if [ -z "${OPENCHAMBER_VERSION}" ]; then echo "OPENCHAMBER_VERSION build-arg is required" >&2; exit 1; fi; \
-    curl -fsSL "https://github.com/openchamber/openchamber/archive/refs/tags/v${OPENCHAMBER_VERSION}.tar.gz" \
-        | tar -xz --strip-components=1; \
-    bun install --frozen-lockfile; \
+    curl -fsSL --retry 5 --retry-all-errors \
+        "https://github.com/openchamber/openchamber/archive/refs/tags/v${OPENCHAMBER_VERSION}.tar.gz" \
+        | tar -xz --strip-components=1
+
+# Install deps and build (cache mount speeds up repeat builds).
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
+    bun install --frozen-lockfile && \
     bun run build:web
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
@@ -42,6 +48,7 @@ ENV LANG=C.UTF-8 \
     PATH=/config/.npm-global/bin:/usr/local/bin:$PATH
 
 # Core runtime + build tools for npm global installs (opencode-ai has native deps).
+# We keep apt lists so we don't need apt-get update later; remove in the same layer.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-${TARGETARCH} \
     --mount=type=cache,target=/var/lib/apt,sharing=locked,id=aptlists-${TARGETARCH} \
     rm -f /etc/apt/apt.conf.d/docker-clean \
@@ -59,23 +66,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-${TARGETARCH}
     && ln -sf /usr/bin/fdfind /usr/bin/fd \
     && sed -i 's|<policy domain="coder" rights="none" pattern="\(PDF\|PS\|PS2\|PS3\|EPS\|XPS\)" />|<policy domain="coder" rights="read\|write" pattern="\1" />|g' /etc/ImageMagick-6/policy.xml || true
 
-# s6-overlay
+# Install s6-overlay with retry for transient network failures.
 RUN set -eux; \
     case "${TARGETARCH}" in \
         amd64)  S6_ARCH=x86_64 ;; \
         arm64)  S6_ARCH=aarch64 ;; \
         *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz" \
+    curl -fsSL --retry 5 --retry-all-errors \
+        "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz" \
         | tar -Jxpf - -C /; \
-    curl -fsSL "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
+    curl -fsSL --retry 5 --retry-all-errors \
+        "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
         | tar -Jxpf - -C /
 
-# Copy s6 service definitions and init scripts before the heavy install layers.
-COPY root/ /
-
-# Install pinned opencode-ai globally.
-RUN set -eux; \
+# Install pinned opencode-ai globally (heavy layer first; cache across bumps).
+RUN --mount=type=cache,target=/root/.npm,sharing=locked \
+    set -eux; \
     if [ -z "${OPENCODE_VERSION}" ]; then echo "OPENCODE_VERSION build-arg is required" >&2; exit 1; fi; \
     npm install -g "opencode-ai@${OPENCODE_VERSION}"; \
     opencode --version
@@ -87,6 +94,9 @@ COPY --from=builder /src/packages/web/package.json /usr/local/lib/openchamber/pa
 COPY --from=builder /src/packages/web/bin /usr/local/lib/openchamber/packages/web/bin
 COPY --from=builder /src/packages/web/server /usr/local/lib/openchamber/packages/web/server
 COPY --from=builder /src/packages/web/dist /usr/local/lib/openchamber/packages/web/dist
+
+# Scripts/config that change most often; keep after heavy layers.
+COPY root/ /
 
 # Create runtime user and directories.
 RUN chmod +x /usr/local/bin/openchamber-* \
@@ -107,6 +117,7 @@ LABEL org.opencontainers.image.title="docker-openchamber" \
 EXPOSE 3000
 VOLUME ["/config", "/workspace", "/ssh"]
 
+# Health-check against the web UI so an unready container appears unhealthy early.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -fsS --max-time 8 -o /dev/null "http://127.0.0.1:3000/health" || exit 1
 

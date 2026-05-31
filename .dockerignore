@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# CI / docs
+.github
+README.md
+LICENSE
+
+# Compose / env
+.env
+.env.example
+docker-compose*.yml
+
+# Local runtime data (host-bound volumes)
+data/
+
+# Host-only helpers
+scripts/
+
+# Reverse-proxy configs (for SWAG on host)
+swag/
