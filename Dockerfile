@@ -6,9 +6,9 @@ FROM oven/bun:1 AS builder
 ARG OPENCHAMBER_VERSION
 ARG TARGETARCH
 
-WORKDIR /src
+WORKDIR /app
 
-# Install build-time deps with explicit cleanup for minimal layer size.
+# Install build-time deps for native modules (e.g. better-sqlite3).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git \
         make g++ python3 \
@@ -23,13 +23,15 @@ RUN set -eux; \
         "https://github.com/openchamber/openchamber/archive/refs/tags/v${OPENCHAMBER_VERSION}.tar.gz" \
         | tar -xz --strip-components=1
 
-# Install deps and build (cache mount speeds up repeat builds).
+# Install deps (cache mount avoids re-downloading on repeat builds).
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked \
-    bun install --frozen-lockfile && \
-    bun run build:web
+    bun install --frozen-lockfile
+
+# Build web assets.
+RUN bun run build:web
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
-FROM debian:trixie-slim
+FROM oven/bun:1
 
 ARG OPENCODE_VERSION
 ARG TARGETARCH
@@ -49,8 +51,7 @@ ENV LANG=C.UTF-8 \
     NPM_CONFIG_PREFIX=/config/.npm-global \
     PATH=/config/.npm-global/bin:/usr/local/bin:$PATH
 
-# Core runtime + build tools for npm global installs (opencode-ai has native deps).
-# We keep apt lists so we don't need apt-get update later; remove in the same layer.
+# Core runtime deps. nodejs + npm needed for opencode-ai global install.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked,id=apt-${TARGETARCH} \
     --mount=type=cache,target=/var/lib/apt,sharing=locked,id=aptlists-${TARGETARCH} \
     rm -f /etc/apt/apt.conf.d/docker-clean \
@@ -82,26 +83,35 @@ RUN set -eux; \
         "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
         | tar -Jxpf - -C /
 
-# Install pinned opencode-ai globally (heavy layer first; cache across bumps).
+# Install pinned opencode-ai globally (cache mount avoids re-downloading on bumps).
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     set -eux; \
     if [ -z "${OPENCODE_VERSION}" ]; then echo "OPENCODE_VERSION build-arg is required" >&2; exit 1; fi; \
     npm install -g "opencode-ai@${OPENCODE_VERSION}"; \
     opencode --version
 
-# Copy the entire built source tree so Bun's symlink structure stays intact.
-COPY --from=builder /src /usr/local/lib/openchamber
+# Copy OpenChamber exactly like upstream: root node_modules + workspace node_modules,
+# then built artifacts. Preserves Bun's symlink structure because WORKDIR matches.
+WORKDIR /app
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/web/node_modules ./packages/web/node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/packages/web/package.json ./packages/web/package.json
+COPY --from=builder /app/packages/web/bin ./packages/web/bin
+COPY --from=builder /app/packages/web/server ./packages/web/server
+COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
 # Scripts/config that change most often; keep after heavy layers.
 COPY root/ /
 
-# Create runtime user and directories.
-RUN chmod +x /usr/local/bin/openchamber-* \
+# Delete upstream bun user (UID 1000) to avoid conflict with our openchamber user.
+RUN userdel bun 2>/dev/null || true \
+    && groupdel bun 2>/dev/null || true \
+    && chmod +x /usr/local/bin/openchamber-* \
     && groupadd -g 1000 openchamber \
     && useradd -u 1000 -g openchamber -d /config -s /usr/local/bin/openchamber-shell -M openchamber \
     && install -d -o openchamber -g openchamber -m 755 /config /workspace \
     && mkdir -p /ssh \
-    && ln -s /usr/local/lib/openchamber /src \
     && chmod +x \
         /etc/cont-init.d/* \
         /etc/s6-overlay/s6-rc.d/*/run
@@ -115,7 +125,6 @@ LABEL org.opencontainers.image.title="docker-openchamber" \
 EXPOSE 3000
 VOLUME ["/config", "/workspace", "/ssh"]
 
-# Health-check against the web UI so an unready container appears unhealthy early.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -fsS --max-time 8 -o /dev/null "http://127.0.0.1:3000/health" || exit 1
 

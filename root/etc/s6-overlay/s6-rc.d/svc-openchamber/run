@@ -20,7 +20,7 @@ fi
 export HOME=/config
 export NODE_ENV=production
 
-cmd=(node /usr/local/lib/openchamber/packages/web/bin/cli.js serve)
+cmd=(bun /app/packages/web/bin/cli.js serve)
 
 if [[ -n "${UI_PASSWORD:-}" ]]; then
     cmd+=(--ui-password "${UI_PASSWORD}")
