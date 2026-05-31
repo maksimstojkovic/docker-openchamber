@@ -6,7 +6,7 @@ services:
       - "3000:3000"
     volumes:
       - ./data/openchamber/config:/config
-      - ./data/openchamber/ssh:/ssh
+      - ./data/openchamber/ssh:/ssh:ro
       - ./data/openchamber/workspace:/workspace
     env_file:
       - .env
