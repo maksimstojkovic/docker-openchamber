@@ -1,0 +1,25 @@
+#!/usr/bin/with-contenv bash
+# Set ownership on runtime directories and create XDG symlinks under /config.
+
+set -euo pipefail
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+
+# Reconcile ownership
+for dir in /config /workspace /ssh; do
+    if [[ -d "$dir" ]]; then
+        echo "[cont-init] Setting ownership on $dir to ${PUID}:${PGID}"
+        chown -R "${PUID}:${PGID}" "$dir" || true
+    fi
+done
+
+# Create XDG subdirs and symlinks as the runtime user
+s6-setuidgid "${PUID}:${PGID}" bash -c '
+    mkdir -p /config/.config/openchamber
+    mkdir -p /config/.config/opencode
+    mkdir -p /config/.local/share/opencode
+    mkdir -p /config/.local/state/opencode
+    mkdir -p /config/.cache
+    mkdir -p /config/.ssh
+'

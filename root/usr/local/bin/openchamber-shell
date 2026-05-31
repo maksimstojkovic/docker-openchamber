@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Login shell wrapper — clears the PTY before exec'ing bash.
+# Mirrored from docker-opencode.
+printf '\033c'
+exec bash "$@"

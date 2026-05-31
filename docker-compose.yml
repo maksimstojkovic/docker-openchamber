@@ -1,0 +1,19 @@
+services:
+  openchamber:
+    image: ghcr.io/maksimstojkovic/docker-openchamber:latest
+    container_name: openchamber
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/openchamber/config:/config
+      - ./data/openchamber/ssh:/ssh
+      - ./data/openchamber/workspace:/workspace
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - swag
+
+networks:
+  swag:
+    external: true

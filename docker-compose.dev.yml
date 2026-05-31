@@ -1,0 +1,18 @@
+services:
+  openchamber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        OPENCHAMBER_VERSION: 1.11.7
+        OPENCODE_VERSION: 1.15.10
+    container_name: openchamber
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data/openchamber/config:/config
+      - ./data/openchamber/ssh:/ssh
+      - ./data/openchamber/workspace:/workspace
+    env_file:
+      - .env
+    restart: unless-stopped

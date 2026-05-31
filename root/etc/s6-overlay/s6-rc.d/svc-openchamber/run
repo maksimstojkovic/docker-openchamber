@@ -1,0 +1,31 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
+
+# Translate container env vars into OpenChamber runtime env vars.
+OPENCODE_HOSTNAME="${OPENCODE_HOSTNAME:-127.0.0.1}"
+OPENCODE_PORT="${OPENCODE_PORT:-4096}"
+
+if [[ "${OPENCODE_EXTERNAL:-false}" == "true" ]]; then
+    export OPENCODE_HOST="http://${OPENCODE_HOSTNAME}:${OPENCODE_PORT}"
+    export OPENCODE_SKIP_START="true"
+    echo "[svc-openchamber] Using external OpenCode at ${OPENCODE_HOST}"
+else
+    export OPENCODE_SKIP_START="false"
+    echo "[svc-openchamber] Starting embedded OpenCode on port ${OPENCODE_PORT}"
+fi
+
+export HOME=/config
+export NODE_ENV=production
+
+cmd=(node /usr/local/lib/openchamber/packages/web/bin/cli.js serve)
+
+if [[ -n "${UI_PASSWORD:-}" ]]; then
+    cmd+=(--ui-password "${UI_PASSWORD}")
+fi
+
+echo "[svc-openchamber] Exec: ${cmd[*]}"
+
+exec s6-setuidgid "${PUID}:${PGID}" "${cmd[@]}"

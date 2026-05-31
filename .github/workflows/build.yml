@@ -1,0 +1,124 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - 'root/**'
+      - 'scripts/**'
+      - '.openchamber-version'
+      - '.opencode-version'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+    inputs:
+      openchamber_version:
+        description: 'OpenChamber version to build (omit to use .openchamber-version)'
+        required: false
+        type: string
+      opencode_version:
+        description: 'OpenCode version to install (omit to use .opencode-version)'
+        required: false
+        type: string
+      push:
+        description: 'Push to ghcr.io after build'
+        required: false
+        type: boolean
+        default: true
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve versions
+        id: version
+        run: |
+          if [ -n "${{ inputs.openchamber_version }}" ]; then
+            oc="${{ inputs.openchamber_version }}"
+          else
+            oc="$(tr -d '[:space:]' < .openchamber-version)"
+          fi
+          if [ -n "${{ inputs.opencode_version }}" ]; then
+            op="${{ inputs.opencode_version }}"
+          else
+            op="$(tr -d '[:space:]' < .opencode-version)"
+          fi
+          echo "openchamber_version=${oc}" >> "${GITHUB_OUTPUT}"
+          echo "opencode_version=${op}" >> "${GITHUB_OUTPUT}"
+          echo "Building openchamber v${oc} + opencode v${op}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          v="${{ steps.version.outputs.openchamber_version }}"
+          repo="${REGISTRY}/${IMAGE_NAME}"
+          repo_lc="$(echo "${repo}" | tr '[:upper:]' '[:lower:]')"
+          short_sha="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+
+          tags=()
+          tags+=("${repo_lc}:${v}")
+          if printf '%s' "${v}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+'; then
+            minor="${v%.*}"
+            tags+=("${repo_lc}:${minor}")
+          fi
+          tags+=("${repo_lc}:latest")
+          tags+=("${repo_lc}:sha-${short_sha}")
+
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${tags[@]}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'workflow_dispatch' || inputs.push }}
+          tags: ${{ steps.tags.outputs.tags }}
+          build-args: |
+            OPENCHAMBER_VERSION=${{ steps.version.outputs.openchamber_version }}
+            OPENCODE_VERSION=${{ steps.version.outputs.opencode_version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - name: Summarise
+        run: |
+          echo "### Built openchamber v${{ steps.version.outputs.openchamber_version }}" >> "${GITHUB_STEP_SUMMARY}"
+          echo '' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'Tags pushed:' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"
+          echo '${{ steps.tags.outputs.tags }}' >> "${GITHUB_STEP_SUMMARY}"
+          echo '```' >> "${GITHUB_STEP_SUMMARY}"

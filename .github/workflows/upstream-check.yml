@@ -1,0 +1,70 @@
+name: upstream-check
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Build even if no version change is detected'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    outputs:
+      openchamber_version: ${{ steps.check.outputs.openchamber_version }}
+      opencode_version: ${{ steps.check.outputs.opencode_version }}
+      update_needed: ${{ steps.check.outputs.update_needed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check upstream for new releases
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check-upstream.sh
+
+      - name: Bump version files
+        if: steps.check.outputs.update_needed == 'true'
+        run: |
+          echo "${{ steps.check.outputs.openchamber_version }}" > .openchamber-version
+          echo "${{ steps.check.outputs.opencode_version }}" > .opencode-version
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .openchamber-version .opencode-version
+          git commit -m "chore: bump openchamber to v${{ steps.check.outputs.openchamber_version }}, opencode to v${{ steps.check.outputs.opencode_version }}"
+          git push
+
+      - name: Dispatch build workflow
+        if: steps.check.outputs.update_needed == 'true' || inputs.force_build == true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run build.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f openchamber_version="${{ steps.check.outputs.openchamber_version }}" \
+            -f opencode_version="${{ steps.check.outputs.opencode_version }}"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Upstream check"
+            echo ""
+            echo "- OpenChamber current: ${{ steps.check.outputs.openchamber_current }}"
+            echo "- OpenChamber latest:  ${{ steps.check.outputs.openchamber_version }}"
+            echo "- OpenCode current:    ${{ steps.check.outputs.opencode_current }}"
+            echo "- OpenCode latest:     ${{ steps.check.outputs.opencode_version }}"
+            echo "- Update needed:       ${{ steps.check.outputs.update_needed }}"
+          } >> "${GITHUB_STEP_SUMMARY}"
